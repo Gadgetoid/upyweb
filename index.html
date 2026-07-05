@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MicroPython WASM test fixture</title>
+<style>
+  :root {
+    --bg: #14161a; --panel: #1c1f26; --edge: #2b3038; --ink: #e6e9ef;
+    --dim: #8b93a1; --accent: #4aa8ff; --run: #2ea043; --stop: #d13b3b;
+    --warn: #e0a83b; --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--ink); font: 14px/1.5 var(--mono);
+    display: grid; grid-template-rows: auto 1fr auto; height: 100vh;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 8px 12px;
+    background: var(--panel); border-bottom: 1px solid var(--edge);
+  }
+  header h1 { font-size: 13px; margin: 0; font-weight: 600; letter-spacing: .02em; }
+  header .grow { flex: 1; }
+  .badge {
+    font-size: 11px; padding: 2px 8px; border-radius: 10px;
+    border: 1px solid var(--edge); color: var(--dim);
+  }
+  .badge b { color: var(--accent); }
+  #status { color: var(--dim); }
+  #status.running { color: var(--warn); }
+  #status.error { color: var(--stop); }
+
+  button, select {
+    font: inherit; color: var(--ink); background: #262b33;
+    border: 1px solid var(--edge); border-radius: 6px; padding: 5px 12px; cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .4; cursor: default; }
+  button.run  { background: var(--run); border-color: transparent; }
+  button.stop { background: var(--stop); border-color: transparent; }
+
+  main { display: grid; grid-template-columns: 1fr 340px; min-height: 0; }
+  .editor-wrap { display: flex; flex-direction: column; min-width: 0; border-right: 1px solid var(--edge); }
+  .toolbar { display: flex; gap: 8px; align-items: center; padding: 8px; background: var(--panel); border-bottom: 1px solid var(--edge); }
+  .toolbar .grow { flex: 1; }
+  /* Editor: a transparent <textarea> over a highlighted <pre>, kept in sync.
+     The textarea keeps native editing/selection/undo; the pre shows colour.
+     Both MUST share identical font metrics/padding or the layers drift. */
+  .code-scroll { position: relative; flex: 1; min-height: 0; background: #0f1115; }
+  #code, #highlight {
+    margin: 0; padding: 12px; border: 0;
+    font: 13px/1.55 var(--mono); tab-size: 4;
+    white-space: pre; overflow: auto; word-wrap: normal;
+    position: absolute; inset: 0; width: 100%; height: 100%;
+  }
+  #highlight { pointer-events: none; overflow: hidden; color: var(--ink); z-index: 0; }
+  #code {
+    resize: none; outline: 0; background: transparent; z-index: 1;
+    color: transparent; caret-color: var(--ink); -webkit-text-fill-color: transparent;
+  }
+  /* Token colours (tokyo-night-ish, tuned for #0f1115). */
+  .t-c { color: #5c6673; font-style: italic; }   /* comment */
+  .t-s { color: #9ece6a; }                        /* string */
+  .t-k { color: #7aa2f7; }                        /* keyword */
+  .t-b { color: #e0af68; }                        /* builtin */
+  .t-d { color: #bb9af7; }                        /* decorator */
+  .t-n { color: #ff9e64; }                        /* number */
+
+  aside { display: flex; flex-direction: column; background: var(--panel); min-height: 0; overflow: auto; }
+  .screen-box { padding: 14px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  #screen {
+    width: 320px; height: 240px; image-rendering: pixelated;
+    background: #000; border: 1px solid var(--edge); border-radius: 6px;
+  }
+  .hint { color: var(--dim); font-size: 11px; text-align: center; padding: 0 8px; margin: 0; }
+  .hint code { color: var(--ink); }
+  .hint b { color: var(--ink); }
+
+  footer { display: flex; flex-direction: column; min-height: 120px; max-height: 34vh; border-top: 1px solid var(--edge); }
+  .out-bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--panel); border-bottom: 1px solid var(--edge); }
+  .out-bar b { font-size: 12px; }
+  #output {
+    flex: 1; margin: 0; padding: 8px 12px; overflow: auto; background: #0f1115;
+    font: 12px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word;
+  }
+  #output .err { color: #ff7a7a; }
+  #output .sys { color: var(--dim); }
+</style>
+</head>
+<body>
+  <header>
+    <h1>MicroPython&nbsp;·&nbsp;WASM test fixture</h1>
+    <span class="badge">core: <b id="backend">…</b></span>
+    <span class="badge">canvas: <b id="res">–</b></span>
+    <span class="grow"></span>
+    <span id="status">loading…</span>
+  </header>
+
+  <main>
+    <div class="editor-wrap">
+      <div class="toolbar">
+        <button class="run" id="run" disabled>▶ Run <span style="opacity:.6">⌘⏎</span></button>
+        <button class="stop" id="stop" disabled>■ Stop</button>
+        <button id="pause" disabled>⏸ Pause</button>
+        <span class="grow"></span>
+        <label class="hint" style="padding:0">example&nbsp;
+          <select id="examples"></select>
+        </label>
+      </div>
+      <div class="code-scroll">
+        <pre id="highlight" aria-hidden="true"></pre>
+        <textarea id="code" spellcheck="false" autocomplete="off"
+                  autocapitalize="off" wrap="off"></textarea>
+      </div>
+    </div>
+
+    <aside>
+      <div class="screen-box">
+        <canvas id="screen" width="160" height="120"></canvas>
+        <p class="hint">Canvas bridge (stock MicroPython):<br>
+          <code>js.blit565(addr,w,h)</code> · <code>js.blitrgba(addr,w,h)</code></p>
+        <p class="hint">Pass a buffer address via <code>uctypes.addressof()</code>;
+          JS reads it from the wasm heap and paints it.</p>
+      </div>
+    </aside>
+  </main>
+
+  <footer>
+    <div class="out-bar"><b>Output</b><span class="grow" style="flex:1"></span>
+      <button id="clear">clear</button></div>
+    <pre id="output"></pre>
+  </footer>
+
+<script type="module">
+/*
+ * A standalone, single-file harness for running *vanilla upstream* MicroPython
+ * against the WebAssembly port (this worktree's build-{jspi,asyncify} outputs).
+ * No badgeware, no simulator modules — just the stock webassembly port.
+ *
+ * Everything runs on the main thread (no web worker), so it's one file.
+ *
+ * Framebuffer -> canvas bridge
+ * ----------------------------
+ * The port has no built-in path to a canvas, so we add a generic one using only
+ * stock facilities: the `js` module (call into JS) + `uctypes.addressof` (a
+ * buffer's address in the wasm heap). Python hands JS an address + size; JS
+ * reads those bytes out of Module.HEAPU8 and paints them. Two shapes:
+ *
+ *   js.blit565(addr, w, h)  - w*h*2 bytes, framebuf.RGB565 (little-endian)
+ *   js.blitrgba(addr, w, h) - w*h*4 bytes, raw RGBA8888
+ *
+ * So a vanilla `framebuf.FrameBuffer(buf, w, h, framebuf.RGB565)` becomes visible
+ * with `js.blit565(uctypes.addressof(buf), w, h)`.
+ *
+ * Serve over HTTP (ES module + wasm need it), from ports/webassembly/:
+ *     python3 -m http.server 8000
+ * then open http://localhost:8000/test-fixture.html
+ */
+
+const $ = (s) => document.querySelector(s);
+const els = {
+  code: $('#code'), out: $('#output'), status: $('#status'),
+  run: $('#run'), stop: $('#stop'), pause: $('#pause'), clear: $('#clear'),
+  backend: $('#backend'), res: $('#res'), screen: $('#screen'), examples: $('#examples'),
+  highlight: $('#highlight'),
+};
+const ctx = els.screen.getContext('2d');
+
+// -- Python syntax highlighting --------------------------------------------
+// Overlay approach: tokenise the textarea's text and mirror it into the <pre>
+// behind it. Comments/strings are matched first so their innards aren't
+// re-tokenised (the global regex advances past the whole match).
+const KW = 'False None True and as assert async await break class continue def del elif else except finally for from global if import in is lambda nonlocal not or pass raise return try while with yield'.split(' ');
+const BI = 'abs all any bin bool bytearray bytes callable chr dict dir enumerate eval filter float format frozenset getattr hasattr hex id input int isinstance issubclass iter len list map max memoryview min next object oct open ord pow print range repr reversed round set setattr sorted staticmethod str sum super tuple type zip'.split(' ');
+const PY = new RegExp([
+  '(#[^\\n]*)',                                               // 1 comment
+  '(\'\'\'[\\s\\S]*?\'\'\'|"""[\\s\\S]*?"""|\'(?:\\\\.|[^\'\\\\])*\'|"(?:\\\\.|[^"\\\\])*")', // 2 string
+  '(@[A-Za-z_]\\w*)',                                          // 3 decorator
+  '\\b(' + KW.join('|') + ')\\b',                              // 4 keyword
+  '\\b(' + BI.join('|') + ')\\b',                              // 5 builtin
+  '(\\b0[xX][0-9a-fA-F]+\\b|\\b\\d+\\.?\\d*(?:[eE][+-]?\\d+)?\\b)', // 6 number
+].join('|'), 'g');
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function pyHighlight(src) {
+  let out = '', last = 0, m;
+  PY.lastIndex = 0;
+  while ((m = PY.exec(src))) {
+    out += esc(src.slice(last, m.index));
+    const cls = m[1] ? 'c' : m[2] ? 's' : m[3] ? 'd' : m[4] ? 'k' : m[5] ? 'b' : 'n';
+    out += `<span class="t-${cls}">${esc(m[0])}</span>`;
+    last = m.index + m[0].length;
+    if (m[0].length === 0) PY.lastIndex++;   // guard against zero-width stalls
+  }
+  // Trailing newline needs a filler char so the <pre> keeps the final blank line.
+  return out + esc(src.slice(last)) + '\n';
+}
+function syncHighlight() { els.highlight.innerHTML = pyHighlight(els.code.value); }
+function syncScroll() { els.highlight.scrollTop = els.code.scrollTop; els.highlight.scrollLeft = els.code.scrollLeft; }
+els.code.addEventListener('input', syncHighlight);
+els.code.addEventListener('scroll', syncScroll);
+
+// -- Output console ---------------------------------------------------------
+function log(text, cls) {
+  const atBottom = els.out.scrollTop + els.out.clientHeight >= els.out.scrollHeight - 4;
+  const span = document.createElement('span');
+  if (cls) span.className = cls;
+  span.textContent = text;
+  els.out.appendChild(span);
+  if (atBottom) els.out.scrollTop = els.out.scrollHeight;
+}
+els.clear.onclick = () => { els.out.textContent = ''; };
+function setStatus(text, cls = '') { els.status.textContent = text; els.status.className = cls; }
+
+// -- Canvas bridge ----------------------------------------------------------
+function ensureSize(w, h) {
+  if (els.screen.width !== w || els.screen.height !== h) {
+    els.screen.width = w; els.screen.height = h;
+    els.res.textContent = `${w}×${h}`;
+  }
+}
+// framebuf.RGB565 (2 bytes/px, little-endian) straight from the wasm heap.
+globalThis.blit565 = (addr, w, h) => {
+  ensureSize(w, h);
+  const heap = globalThis.Module.HEAPU8;
+  const img = ctx.createImageData(w, h);
+  const d = img.data;
+  for (let p = 0, s = addr; p < w * h; p++, s += 2) {
+    const v = heap[s] | (heap[s + 1] << 8);
+    let r = (v >> 8) & 0xf8; r |= r >> 5;   // expand 5/6/5 back to 8 bits each
+    let g = (v >> 3) & 0xfc; g |= g >> 6;
+    let b = (v << 3) & 0xf8; b |= b >> 5;
+    d[p * 4] = r; d[p * 4 + 1] = g; d[p * 4 + 2] = b; d[p * 4 + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+};
+// Raw RGBA8888 (4 bytes/px).
+globalThis.blitrgba = (addr, w, h) => {
+  ensureSize(w, h);
+  const bytes = globalThis.Module.HEAPU8.slice(addr, addr + w * h * 4);
+  ctx.putImageData(new ImageData(new Uint8ClampedArray(bytes.buffer), w, h), 0, 0);
+};
+
+// -- Run / stop serialiser --------------------------------------------------
+// One VM call in flight at a time (Asyncify requirement). A new run interrupts
+// the previous one and awaits its unwind first.
+let mp = null, runPromise = null, stopping = false;
+
+async function stopCurrent() {
+  if (!runPromise) return;
+  stopping = true;
+  try { mp.interrupt(); } catch {}
+  await runPromise.catch(() => {});
+  runPromise = null; stopping = false;
+}
+
+async function runCode() {
+  if (!mp) return;
+  await stopCurrent();
+  const src = els.code.value;
+  els.pause.textContent = '⏸ Pause';
+  setStatus('running…', 'running');
+  els.stop.disabled = false; els.pause.disabled = false;
+  runPromise = (async () => {
+    try {
+      await mp.runPythonAsync(src);
+      if (!stopping) setStatus('done', '');
+    } catch (e) {
+      if (!stopping) { log('\n' + (e.message || String(e)).trim() + '\n', 'err'); setStatus('error', 'error'); }
+      else setStatus('stopped', '');
+    } finally {
+      runPromise = null;
+      els.stop.disabled = true; els.pause.disabled = true;
+    }
+  })();
+}
+
+// Cooperative pause: a busy VM can't be paused from JS, but a loop that calls
+// time.sleep_ms() gives the event loop turns, so toggling this flag stalls it
+// via a JS-side check the script can honour (see the 'framebuf animation' demo).
+globalThis.mpPaused = false;
+
+els.run.onclick = runCode;
+els.stop.onclick = async () => { setStatus('stopping…', 'running'); await stopCurrent(); setStatus('stopped', ''); };
+els.pause.onclick = () => {
+  if (!runPromise) return;
+  globalThis.mpPaused = !globalThis.mpPaused;
+  els.pause.textContent = globalThis.mpPaused ? '▶ Resume' : '⏸ Pause';
+  setStatus(globalThis.mpPaused ? 'paused' : 'running…', 'running');
+};
+els.code.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); runCode(); }
+  if (e.key === 'Tab') { e.preventDefault(); const s = els.code.selectionStart, en = els.code.selectionEnd;
+    els.code.setRangeText('    ', s, en, 'end'); syncHighlight(); }
+});
+
+// -- Examples ---------------------------------------------------------------
+const EXAMPLES = {
+  'Hello (stdout)': `# Plain MicroPython — stdout only.
+import sys
+print("MicroPython", sys.version)
+print("implementation:", sys.implementation.name, sys.implementation.version)
+
+for i in range(5):
+    print("count", i, "squared", i * i)
+
+# Exceptions surface in the Output panel with a traceback:
+# raise RuntimeError("boom")
+`,
+
+  'framebuf → canvas': `# Vanilla 'framebuf' drawn straight to the HTML canvas.
+# The bridge is stock MicroPython: hand JS the buffer's heap address and let it
+# read the bytes.
+import framebuf, js, uctypes
+
+W, H = 160, 120
+buf = bytearray(W * H * 2)                              # RGB565, 2 bytes/px
+fb = framebuf.FrameBuffer(buf, W, H, framebuf.RGB565)
+addr = uctypes.addressof(buf)                           # stable: MPy GC never moves it
+
+fb.fill(0x0000)
+fb.fill_rect(10, 10, 60, 40, 0xF800)                   # red
+fb.fill_rect(40, 40, 60, 40, 0x07E0)                   # green
+fb.rect(80, 20, 50, 60, 0x001F)                        # blue outline
+fb.text("FRAMEBUF", 24, 96, 0xFFFF)
+
+js.blit565(addr, W, H)                                  # -> canvas
+print("drew one frame")
+`,
+
+  'framebuf animation': `# Animated framebuf: a bouncing box. time.sleep_ms gives the event loop turns,
+# so Stop can interrupt it and Pause (js.mpPaused) can stall it.
+import framebuf, js, uctypes, time
+
+W, H = 160, 120
+buf = bytearray(W * H * 2)
+fb = framebuf.FrameBuffer(buf, W, H, framebuf.RGB565)
+addr = uctypes.addressof(buf)
+
+x, y, dx, dy = 20, 20, 3, 2
+hue = 0
+while True:
+    if js.mpPaused:
+        time.sleep_ms(50)
+        continue
+    x += dx; y += dy
+    if x < 0 or x > W - 20: dx = -dx
+    if y < 0 or y > H - 20: dy = -dy
+    hue = (hue + 1) & 0x1f
+    fb.fill(0x0000)
+    fb.fill_rect(x, y, 20, 20, (hue << 11) | 0x07E0)
+    fb.text("framebuf", 4, 4, 0xFFFF)
+    js.blit565(addr, W, H)
+    time.sleep_ms(16)
+`,
+
+  'raw RGBA canvas': `# No framebuf: write RGBA8888 by hand and blit it. A scrolling gradient.
+import js, uctypes, time
+
+W, H = 160, 120
+buf = bytearray(W * H * 4)
+addr = uctypes.addressof(buf)
+
+t = 0
+while True:
+    for y in range(H):
+        row = y * W * 4
+        for x in range(W):
+            i = row + x * 4
+            buf[i]     = (x * 2 + t) & 0xff     # R
+            buf[i + 1] = (y * 2) & 0xff         # G
+            buf[i + 2] = t & 0xff               # B
+            buf[i + 3] = 255                    # A
+    js.blitrgba(addr, W, H)
+    t = (t + 4) & 0xff
+    time.sleep_ms(30)
+`,
+
+  'call into JS': `# The 'js' module reaches globalThis. Anything you put on the page is callable.
+import js
+js.console.log("hello from MicroPython")     # -> browser devtools console
+print("document.title =", js.document.title)
+print("2 + 3 via JS Math.max:", js.Math.max(2, 3))
+`,
+};
+
+for (const name of Object.keys(EXAMPLES)) {
+  const opt = document.createElement('option');
+  opt.value = name; opt.textContent = name;
+  els.examples.appendChild(opt);
+}
+els.examples.onchange = () => { els.code.value = EXAMPLES[els.examples.value]; syncHighlight(); syncScroll(); };
+const DEFAULT = 'framebuf animation';
+els.code.value = EXAMPLES[DEFAULT];
+els.examples.value = DEFAULT;
+syncHighlight();
+
+// -- Boot the WASM core -----------------------------------------------------
+// JSPI is lighter/faster but not everywhere yet; fall back to Asyncify. Each
+// build ships in its own dir next to this file. Override with ?backend=asyncify
+// (or asyncify-fast).
+const forced = new URLSearchParams(location.search).get('backend');
+const jspiOK = typeof WebAssembly.Suspending === 'function' && typeof WebAssembly.promising === 'function';
+const backend = forced || (jspiOK ? 'jspi' : 'asyncify');
+els.backend.textContent = backend;
+const modUrl = `./build-${backend}/micropython.mjs`;
+
+(async () => {
+  try {
+    const { loadMicroPython } = await import(modUrl);
+    mp = await loadMicroPython({
+      heapsize: 8 * 1024 * 1024,
+      linebuffer: true,
+      stdout: (line) => log(line),
+      stderr: (line) => log(line, 'err'),
+    });
+    // globalThis.Module is set by the loader; the blit bridges read its HEAPU8.
+    await mp.runPythonAsync('import sys; print("MicroPython", sys.version)');
+    els.run.disabled = false;
+    setStatus('ready', '');
+    log('\n[fixture ready — ⌘/Ctrl+Enter to run]\n', 'sys');
+  } catch (e) {
+    setStatus('load failed', 'error');
+    log(`\nFailed to load ${modUrl}\n${e.message || e}\n`, 'err');
+    log(`\nBuild the ${backend} port and serve this dir over HTTP:\n` +
+        `  make VARIANT=${backend === 'jspi' ? 'jspi' : 'asyncify'}\n` +
+        `  python3 -m http.server 8000   # from ports/webassembly/\n`, 'sys');
+  }
+})();
+</script>
+</body>
+</html>
