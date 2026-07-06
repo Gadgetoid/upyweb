@@ -102,6 +102,7 @@
     color: #fff; font-weight: 600; letter-spacing: .06em; background: #333;
     transition: background-color .12s linear; text-shadow: 0 1px 2px rgba(0,0,0,.55);
   }
+  .canvas { width: 100%; display: block; border: 1px solid var(--edge); border-radius: 6px; background: #0f1115; }
 
   footer { display: flex; flex-direction: column; min-height: 120px; max-height: 34vh; border-top: 1px solid var(--edge); }
   .out-bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--panel); border-bottom: 1px solid var(--edge); }
@@ -169,6 +170,12 @@
         <ul id="todo-list" class="todo"></ul>
         <p class="hint">Every widget here is wired up in the editor with
           <code>import js</code>. Click a task to remove it.</p>
+
+        <hr>
+
+        <canvas id="canvas" width="300" height="150" class="canvas"></canvas>
+        <p class="hint">Grab <code>canvas.getContext("2d")</code> and draw shapes
+          straight from Python — see the two "Canvas" examples.</p>
 
         <hr>
 
@@ -427,6 +434,77 @@ def add(event):
 
 doc.getElementById("todo-add").onclick = add
 print("Type a task and press Add.")
+`,
+
+  'Canvas: shapes (2D context)': `# Draw straight into a <canvas> by grabbing its 2D context - no buffer, no
+# framebuf. Every ctx.* call is a proxy call into the real CanvasRenderingContext2D.
+import js, math
+
+cv = js.document.getElementById("canvas")
+ctx = cv.getContext("2d")
+W, H = cv.width, cv.height
+ctx.clearRect(0, 0, W, H)
+
+# filled rectangle
+ctx.fillStyle = "#4aa8ff"
+ctx.fillRect(20, 20, 90, 52)
+
+# filled circle
+ctx.beginPath()
+ctx.arc(180, 46, 30, 0, 2 * math.pi)
+ctx.fillStyle = "#2ea043"
+ctx.fill()
+
+# stroked triangle via a path
+ctx.beginPath()
+ctx.moveTo(250, 16)
+ctx.lineTo(292, 76)
+ctx.lineTo(250, 76)
+ctx.closePath()
+ctx.lineWidth = 3
+ctx.strokeStyle = "#e0a83b"
+ctx.stroke()
+
+# a gradient bar
+g = ctx.createLinearGradient(0, 0, W, 0)
+g.addColorStop(0, "#d13b3b")
+g.addColorStop(1, "#bb9af7")
+ctx.fillStyle = g
+ctx.fillRect(20, 110, W - 40, 24)
+
+# text
+ctx.fillStyle = "#e6e9ef"
+ctx.font = "15px monospace"
+ctx.fillText("drawn from MicroPython", 20, 100)
+
+print("painted a", W, "x", H, "canvas via getContext('2d')")
+`,
+
+  'Canvas: bouncing ball': `# Animate the canvas by calling its 2D context in a responsive while True loop.
+# time.sleep_ms() yields each frame, so it stays smooth, Stop halts it, and the
+# buttons above keep working - all while drawing via ctx.*.
+import js, math, time
+
+cv = js.document.getElementById("canvas")
+ctx = cv.getContext("2d")
+W, H = cv.width, cv.height
+
+x, y, dx, dy, r = W / 2, H / 2, 2.4, 1.8, 14
+hue = 0
+while True:
+    x += dx; y += dy
+    if x < r or x > W - r: dx = -dx
+    if y < r or y > H - r: dy = -dy
+    hue = (hue + 3) % 360
+
+    ctx.fillStyle = "rgba(15, 17, 21, 0.35)"      # translucent wash -> motion trail
+    ctx.fillRect(0, 0, W, H)
+    ctx.beginPath()
+    ctx.arc(x, y, r, 0, 2 * math.pi)
+    ctx.fillStyle = "hsl({}, 80%, 55%)".format(hue)
+    ctx.fill()
+
+    time.sleep_ms(16)
 `,
 
   'Colour loop (while True)': `# A forever loop that doesn't freeze the page. time.sleep_ms() yields to the JS
