@@ -5245,6 +5245,9 @@ function checkIncomingModuleAPI() {
 function proxy_convert_mp_to_js_then_js_to_mp_obj_jsside(out) { const ret = proxy_convert_mp_to_js_obj_jsside(out); proxy_convert_js_to_mp_obj_jsside_force_double_proxy(ret, out); }
 function proxy_convert_mp_to_js_then_js_to_js_then_js_to_mp_obj_jsside(out) { const ret = proxy_convert_mp_to_js_obj_jsside(out); const js_obj = PyProxy.toJs(ret); proxy_convert_js_to_mp_obj_jsside(js_obj, out); }
 function js_get_proxy_js_ref_info(out) { let used = 0; for (const elem of proxy_js_ref) { if (elem !== undefined) { ++used; } } Module.setValue(out, proxy_js_ref.length, "i32"); Module.setValue(out + 4, used, "i32"); }
+function mp_js_run_sync_start(ref) { if (!Module.__mpRunSync) { Module.__mpRunSync = new Map(); Module.__mpRunSyncNext = 1; } const id = Module.__mpRunSyncNext++; const slot = { done: 0, value: undefined }; Module.__mpRunSync.set(id, slot); Promise.resolve(proxy_js_ref[ref]).then( (v) => { slot.value = v; slot.done = 1; }, (e) => { slot.value = e; slot.done = 2; }, ); return id; }
+function mp_js_run_sync_poll(id) { return Module.__mpRunSync.get(id).done; }
+function mp_js_run_sync_take(id,out) { const slot = Module.__mpRunSync.get(id); Module.__mpRunSync.delete(id); proxy_convert_js_to_mp_obj_jsside(slot.value, out); }
 function has_attr(jsref,str) { const base = proxy_js_ref[jsref]; const attr = UTF8ToString(str); if (attr in base) { return true; } else { return false; } }
 function lookup_attr(jsref,str,out) { const base = proxy_js_ref[jsref]; const attr = UTF8ToString(str); let value = base[attr]; if (value !== undefined || attr in base) { proxy_convert_js_to_mp_obj_jsside(value, out); if (typeof value === "function" && !("_ref" in value)) { return 2; } else { return 1; } } else { return 0; } }
 function store_attr(jsref,attr_ptr,value_ref) { const attr = UTF8ToString(attr_ptr); const value = proxy_convert_mp_to_js_obj_jsside(value_ref); proxy_js_ref[jsref][attr] = value; }
@@ -5538,6 +5541,12 @@ var wasmImports = {
   mp_js_fetch_str: _mp_js_fetch_str,
   /** @export */
   mp_js_random_u32: _mp_js_random_u32,
+  /** @export */
+  mp_js_run_sync_poll,
+  /** @export */
+  mp_js_run_sync_start,
+  /** @export */
+  mp_js_run_sync_take,
   /** @export */
   mp_js_ticks_ms: _mp_js_ticks_ms,
   /** @export */

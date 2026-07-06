@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MicroPython WASM test fixture</title>
+<title>MicroPython WASM · DOM playground</title>
 <style>
   :root {
     --bg: #14161a; --panel: #1c1f26; --edge: #2b3038; --ink: #e6e9ef;
@@ -40,7 +40,7 @@
   button.run  { background: var(--run); border-color: transparent; }
   button.stop { background: var(--stop); border-color: transparent; }
 
-  main { display: grid; grid-template-columns: 1fr 340px; min-height: 0; }
+  main { display: grid; grid-template-columns: 1fr 360px; min-height: 0; }
   .editor-wrap { display: flex; flex-direction: column; min-width: 0; border-right: 1px solid var(--edge); }
   .toolbar { display: flex; gap: 8px; align-items: center; padding: 8px; background: var(--panel); border-bottom: 1px solid var(--edge); }
   .toolbar .grow { flex: 1; }
@@ -67,15 +67,41 @@
   .t-d { color: #bb9af7; }                        /* decorator */
   .t-n { color: #ff9e64; }                        /* number */
 
+  /* -- Live UI playground (the panel MicroPython drives) -- */
   aside { display: flex; flex-direction: column; background: var(--panel); min-height: 0; overflow: auto; }
-  .screen-box { padding: 14px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
-  #screen {
-    width: 320px; height: 240px; image-rendering: pixelated;
-    background: #000; border: 1px solid var(--edge); border-radius: 6px;
+  .ui-pad { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+  .ui-pad h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--dim); margin: 0; font-weight: 600;
   }
-  .hint { color: var(--dim); font-size: 11px; text-align: center; padding: 0 8px; margin: 0; }
+  .ui-pad b { color: var(--accent); }
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .ui-in {
+    font: inherit; color: var(--ink); background: #0f1115;
+    border: 1px solid var(--edge); border-radius: 6px; padding: 5px 10px;
+    flex: 1; min-width: 0;
+  }
+  .ui-in:focus { outline: 0; border-color: var(--accent); }
+  .panel-box {
+    border: 1px dashed var(--edge); border-radius: 6px; padding: 10px 12px;
+    color: var(--dim); font-size: 12px;
+  }
+  .panel-box code, .panel-box b { color: var(--ink); }
+  .todo { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .todo li {
+    background: #0f1115; border: 1px solid var(--edge); border-radius: 6px;
+    padding: 6px 10px; cursor: pointer; user-select: none;
+  }
+  .todo li:hover { border-color: var(--stop); color: var(--dim); text-decoration: line-through; }
+  .hint { color: var(--dim); font-size: 11px; margin: 0; }
   .hint code { color: var(--ink); }
-  .hint b { color: var(--ink); }
+  hr { border: 0; border-top: 1px solid var(--edge); margin: 2px 0; }
+  .colorbox {
+    height: 64px; border-radius: 8px; border: 1px solid var(--edge);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 600; letter-spacing: .06em; background: #333;
+    transition: background-color .12s linear; text-shadow: 0 1px 2px rgba(0,0,0,.55);
+  }
 
   footer { display: flex; flex-direction: column; min-height: 120px; max-height: 34vh; border-top: 1px solid var(--edge); }
   .out-bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--panel); border-bottom: 1px solid var(--edge); }
@@ -90,9 +116,8 @@
 </head>
 <body>
   <header>
-    <h1>MicroPython&nbsp;·&nbsp;WASM test fixture</h1>
+    <h1>MicroPython&nbsp;·&nbsp;DOM playground</h1>
     <span class="badge">core: <b id="backend">…</b></span>
-    <span class="badge">canvas: <b id="res">–</b></span>
     <span class="grow"></span>
     <span id="status">loading…</span>
   </header>
@@ -102,7 +127,6 @@
       <div class="toolbar">
         <button class="run" id="run" disabled>▶ Run <span style="opacity:.6">⌘⏎</span></button>
         <button class="stop" id="stop" disabled>■ Stop</button>
-        <button id="pause" disabled>⏸ Pause</button>
         <span class="grow"></span>
         <label class="hint" style="padding:0">example&nbsp;
           <select id="examples"></select>
@@ -116,12 +140,41 @@
     </div>
 
     <aside>
-      <div class="screen-box">
-        <canvas id="screen" width="160" height="120"></canvas>
-        <p class="hint">Canvas bridge (stock MicroPython):<br>
-          <code>js.blit565(addr,w,h)</code> · <code>js.blitrgba(addr,w,h)</code></p>
-        <p class="hint">Pass a buffer address via <code>uctypes.addressof()</code>;
-          JS reads it from the wasm heap and paints it.</p>
+      <div class="ui-pad">
+        <h2>Live UI — driven from the editor</h2>
+
+        <div class="row">
+          <button id="ping">Ping</button>
+          <span>clicks: <b id="count">0</b></span>
+        </div>
+
+        <div class="row">
+          <button id="toggle">Hide details</button>
+        </div>
+        <div id="panel" class="panel-box">
+          Shown / hidden by MicroPython via <code>panel.style.display</code>.
+        </div>
+
+        <div class="row">
+          <input id="name" class="ui-in" placeholder="type your name…">
+        </div>
+        <p>Hello, <b id="greet">world</b>!</p>
+
+        <hr>
+
+        <div class="row">
+          <input id="todo-input" class="ui-in" placeholder="add a task…">
+          <button id="todo-add">Add</button>
+        </div>
+        <ul id="todo-list" class="todo"></ul>
+        <p class="hint">Every widget here is wired up in the editor with
+          <code>import js</code>. Click a task to remove it.</p>
+
+        <hr>
+
+        <div id="colorbox" class="colorbox">while&nbsp;True</div>
+        <p class="hint">A <code>while True</code> loop cycles this box's colour and
+          <b>still</b> lets the buttons above respond — that's the cooperative yield.</p>
       </div>
     </aside>
   </main>
@@ -134,52 +187,39 @@
 
 <script type="module">
 /*
- * A standalone, single-file harness for running *vanilla upstream* MicroPython
- * against the WebAssembly port (this worktree's build-{jspi,asyncify} outputs).
- * No badgeware, no simulator modules — just the stock webassembly port.
+ * ui.html — a sibling of index.html that shows *editable MicroPython driving
+ * real DOM events*: click handlers, an input event, show/hide, and building
+ * live DOM. Same stock upstream webassembly port (build-{jspi,asyncify,
+ * asyncify-fast}); no badgeware, no worker, one file.
  *
- * Everything runs on the main thread (no web worker), so it's one file.
+ * The interop is all stock: `import js` reaches globalThis (so `js.document`),
+ * and a Python callable passed to a JS slot (e.g. `el.onclick = handler`) is
+ * proxied and invoked by the browser when the event fires. Assigning to the
+ * .onclick / .oninput property (rather than addEventListener) means re-running
+ * the script just replaces the handler instead of stacking duplicates.
  *
- * Framebuffer -> canvas bridge
- * ----------------------------
- * The port has no built-in path to a canvas, so we add a generic one using only
- * stock facilities: the `js` module (call into JS) + `uctypes.addressof` (a
- * buffer's address in the wasm heap). Python hands JS an address + size; JS
- * reads those bytes out of Module.HEAPU8 and paints them. Two shapes:
- *
- *   js.blit565(addr, w, h)  - w*h*2 bytes, framebuf.RGB565 (little-endian)
- *   js.blitrgba(addr, w, h) - w*h*4 bytes, raw RGBA8888
- *
- * So a vanilla `framebuf.FrameBuffer(buf, w, h, framebuf.RGB565)` becomes visible
- * with `js.blit565(uctypes.addressof(buf), w, h)`.
- *
- * Serve over HTTP (ES module + wasm need it), from ports/webassembly/:
- *     python3 -m http.server 8000
- * then open http://localhost:8000/test-fixture.html
+ * Serve over HTTP (ES module + wasm need it):
+ *     python3 -m http.server 8000     # from this dir
+ * then open http://localhost:8000/ui.html
  */
 
 const $ = (s) => document.querySelector(s);
 const els = {
   code: $('#code'), out: $('#output'), status: $('#status'),
-  run: $('#run'), stop: $('#stop'), pause: $('#pause'), clear: $('#clear'),
-  backend: $('#backend'), res: $('#res'), screen: $('#screen'), examples: $('#examples'),
-  highlight: $('#highlight'),
+  run: $('#run'), stop: $('#stop'), clear: $('#clear'),
+  backend: $('#backend'), examples: $('#examples'), highlight: $('#highlight'),
 };
-const ctx = els.screen.getContext('2d');
 
-// -- Python syntax highlighting --------------------------------------------
-// Overlay approach: tokenise the textarea's text and mirror it into the <pre>
-// behind it. Comments/strings are matched first so their innards aren't
-// re-tokenised (the global regex advances past the whole match).
+// -- Python syntax highlighting (overlay: tokenise textarea into the <pre>) --
 const KW = 'False None True and as assert async await break class continue def del elif else except finally for from global if import in is lambda nonlocal not or pass raise return try while with yield'.split(' ');
 const BI = 'abs all any bin bool bytearray bytes callable chr dict dir enumerate eval filter float format frozenset getattr hasattr hex id input int isinstance issubclass iter len list map max memoryview min next object oct open ord pow print range repr reversed round set setattr sorted staticmethod str sum super tuple type zip'.split(' ');
 const PY = new RegExp([
-  '(#[^\\n]*)',                                               // 1 comment
-  '(\'\'\'[\\s\\S]*?\'\'\'|"""[\\s\\S]*?"""|\'(?:\\\\.|[^\'\\\\])*\'|"(?:\\\\.|[^"\\\\])*")', // 2 string
-  '(@[A-Za-z_]\\w*)',                                          // 3 decorator
-  '\\b(' + KW.join('|') + ')\\b',                              // 4 keyword
-  '\\b(' + BI.join('|') + ')\\b',                              // 5 builtin
-  '(\\b0[xX][0-9a-fA-F]+\\b|\\b\\d+\\.?\\d*(?:[eE][+-]?\\d+)?\\b)', // 6 number
+  '(#[^\\n]*)',
+  '(\'\'\'[\\s\\S]*?\'\'\'|"""[\\s\\S]*?"""|\'(?:\\\\.|[^\'\\\\])*\'|"(?:\\\\.|[^"\\\\])*")',
+  '(@[A-Za-z_]\\w*)',
+  '\\b(' + KW.join('|') + ')\\b',
+  '\\b(' + BI.join('|') + ')\\b',
+  '(\\b0[xX][0-9a-fA-F]+\\b|\\b\\d+\\.?\\d*(?:[eE][+-]?\\d+)?\\b)',
 ].join('|'), 'g');
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 function pyHighlight(src) {
@@ -190,9 +230,8 @@ function pyHighlight(src) {
     const cls = m[1] ? 'c' : m[2] ? 's' : m[3] ? 'd' : m[4] ? 'k' : m[5] ? 'b' : 'n';
     out += `<span class="t-${cls}">${esc(m[0])}</span>`;
     last = m.index + m[0].length;
-    if (m[0].length === 0) PY.lastIndex++;   // guard against zero-width stalls
+    if (m[0].length === 0) PY.lastIndex++;
   }
-  // Trailing newline needs a filler char so the <pre> keeps the final blank line.
   return out + esc(src.slice(last)) + '\n';
 }
 function syncHighlight() { els.highlight.innerHTML = pyHighlight(els.code.value); }
@@ -212,38 +251,7 @@ function log(text, cls) {
 els.clear.onclick = () => { els.out.textContent = ''; };
 function setStatus(text, cls = '') { els.status.textContent = text; els.status.className = cls; }
 
-// -- Canvas bridge ----------------------------------------------------------
-function ensureSize(w, h) {
-  if (els.screen.width !== w || els.screen.height !== h) {
-    els.screen.width = w; els.screen.height = h;
-    els.res.textContent = `${w}×${h}`;
-  }
-}
-// framebuf.RGB565 (2 bytes/px, little-endian) straight from the wasm heap.
-globalThis.blit565 = (addr, w, h) => {
-  ensureSize(w, h);
-  const heap = globalThis.Module.HEAPU8;
-  const img = ctx.createImageData(w, h);
-  const d = img.data;
-  for (let p = 0, s = addr; p < w * h; p++, s += 2) {
-    const v = heap[s] | (heap[s + 1] << 8);
-    let r = (v >> 8) & 0xf8; r |= r >> 5;   // expand 5/6/5 back to 8 bits each
-    let g = (v >> 3) & 0xfc; g |= g >> 6;
-    let b = (v << 3) & 0xf8; b |= b >> 5;
-    d[p * 4] = r; d[p * 4 + 1] = g; d[p * 4 + 2] = b; d[p * 4 + 3] = 255;
-  }
-  ctx.putImageData(img, 0, 0);
-};
-// Raw RGBA8888 (4 bytes/px).
-globalThis.blitrgba = (addr, w, h) => {
-  ensureSize(w, h);
-  const bytes = globalThis.Module.HEAPU8.slice(addr, addr + w * h * 4);
-  ctx.putImageData(new ImageData(new Uint8ClampedArray(bytes.buffer), w, h), 0, 0);
-};
-
-// -- Run / stop serialiser --------------------------------------------------
-// One VM call in flight at a time (Asyncify requirement). A new run interrupts
-// the previous one and awaits its unwind first.
+// -- Run / stop serialiser (one VM call in flight at a time) ----------------
 let mp = null, runPromise = null, stopping = false;
 
 async function stopCurrent() {
@@ -258,43 +266,29 @@ async function runCode() {
   if (!mp) return;
   await stopCurrent();
   const src = els.code.value;
-  els.pause.textContent = '⏸ Pause';
   setStatus('running…', 'running');
-  els.stop.disabled = false; els.pause.disabled = false;
+  els.stop.disabled = false;
   runPromise = (async () => {
     try {
       await mp.runPythonAsync(src);
-      if (!stopping) setStatus('done', '');
+      if (!stopping) setStatus('handlers live', '');
     } catch (e) {
       if (!stopping) { log('\n' + (e.message || String(e)).trim() + '\n', 'err'); setStatus('error', 'error'); }
       else setStatus('stopped', '');
     } finally {
       runPromise = null;
-      els.stop.disabled = true; els.pause.disabled = true;
+      els.stop.disabled = true;
     }
   })();
 }
 
-// Cooperative pause: a busy VM can't be paused from JS, but a loop that calls
-// time.sleep_ms() gives the event loop turns, so toggling this flag stalls it
-// via a JS-side check the script can honour (see the 'framebuf animation' demo).
-globalThis.mpPaused = false;
-
 els.run.onclick = runCode;
 els.stop.onclick = async () => { setStatus('stopping…', 'running'); await stopCurrent(); setStatus('stopped', ''); };
-els.pause.onclick = () => {
-  if (!runPromise) return;
-  globalThis.mpPaused = !globalThis.mpPaused;
-  els.pause.textContent = globalThis.mpPaused ? '▶ Resume' : '⏸ Pause';
-  setStatus(globalThis.mpPaused ? 'paused' : 'running…', 'running');
-};
 els.code.addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); runCode(); }
   if (e.key === 'Tab') { e.preventDefault(); const s = els.code.selectionStart, en = els.code.selectionEnd;
     els.code.setRangeText('    ', s, en, 'end'); syncHighlight(); }
   if (e.key === 'Enter') {
-    // Carry the current line's leading indentation onto the new line — but not
-    // if the line is blank or only spaces (avoid trailing-whitespace ladders).
     e.preventDefault();
     const v = els.code.value, s = els.code.selectionStart, en = els.code.selectionEnd;
     const lineStart = v.lastIndexOf('\n', s - 1) + 1;
@@ -307,91 +301,154 @@ els.code.addEventListener('keydown', (e) => {
 
 // -- Examples ---------------------------------------------------------------
 const EXAMPLES = {
-  'Hello (stdout)': `# Plain MicroPython — stdout only.
-import sys
-print("MicroPython", sys.version)
-print("implementation:", sys.implementation.name, sys.implementation.version)
+  'DOM events (wire the whole panel)': `# Editable MicroPython driving the "Live UI" panel to the right.
+# The 'js' module reaches globalThis, so js.document is the real page.
+# Assign a Python function to an element's .onclick / .oninput and the
+# browser calls it when the event fires. Edit me, then Run (Cmd/Ctrl+Enter).
+import js
 
-for i in range(5):
-    print("count", i, "squared", i * i)
+doc = js.document
 
-# Exceptions surface in the Output panel with a traceback:
-# raise RuntimeError("boom")
-`,
+# --- 1. Button press: count clicks, write the total back into the page ------
+count = 0
+count_out = doc.getElementById("count")
 
-  'framebuf → canvas': `# Vanilla 'framebuf' drawn straight to the HTML canvas.
-# The bridge is stock MicroPython: hand JS the buffer's heap address and let it
-# read the bytes.
-import framebuf, js, uctypes
+def ping(event):
+    global count
+    count += 1
+    count_out.textContent = str(count)
+    print("ping ->", count)
 
-W, H = 160, 120
-buf = bytearray(W * H * 2)                              # RGB565, 2 bytes/px
-fb = framebuf.FrameBuffer(buf, W, H, framebuf.RGB565)
-addr = uctypes.addressof(buf)                           # stable: MPy GC never moves it
+# .onclick = (not addEventListener) so a re-run replaces, not stacks, handlers.
+doc.getElementById("ping").onclick = ping
 
-fb.fill(0x0000)
-fb.fill_rect(10, 10, 60, 40, 0xF800)                   # red
-fb.fill_rect(40, 40, 60, 40, 0x07E0)                   # green
-fb.rect(80, 20, 50, 60, 0x001F)                        # blue outline
-fb.text("FRAMEBUF", 24, 96, 0xFFFF)
+# --- 2. Show / hide an element ----------------------------------------------
+panel = doc.getElementById("panel")
+toggle_btn = doc.getElementById("toggle")
 
-js.blit565(addr, W, H)                                  # -> canvas
-print("drew one frame")
-`,
+def toggle(event):
+    hidden = panel.style.display == "none"
+    panel.style.display = "" if hidden else "none"
+    toggle_btn.textContent = "Hide details" if hidden else "Show details"
 
-  'framebuf animation': `# Animated framebuf: a bouncing box. time.sleep_ms gives the event loop turns,
-# so Stop can interrupt it and Pause (js.mpPaused) can stall it.
-import framebuf, js, uctypes, time
+toggle_btn.onclick = toggle
 
-W, H = 160, 120
-buf = bytearray(W * H * 2)
-fb = framebuf.FrameBuffer(buf, W, H, framebuf.RGB565)
-addr = uctypes.addressof(buf)
+# --- 3. A non-click event: live-update a greeting as you type ---------------
+greet = doc.getElementById("greet")
 
-x, y, dx, dy = 20, 20, 3, 2
+def on_type(event):
+    greet.textContent = event.target.value or "world"
+
+doc.getElementById("name").oninput = on_type
+
+# --- 4. Something useful: a tiny to-do list ---------------------------------
+todo_input = doc.getElementById("todo-input")
+todo_list = doc.getElementById("todo-list")
+
+def add_todo(event):
+    text = todo_input.value.strip()
+    if not text:
+        return
+    li = doc.createElement("li")
+    li.textContent = text
+    li.title = "click to remove"
+    li.onclick = lambda ev: todo_list.removeChild(li)   # click an item to delete it
+    todo_list.appendChild(li)
+    todo_input.value = ""
+    print("added:", text)
+
+doc.getElementById("todo-add").onclick = add_todo
+
+print("UI wired up - click Ping, toggle the panel, type a name, add tasks.")
+
+# --- 5. A forever loop that stays responsive --------------------------------
+# time.sleep_ms() hands the JS event loop a turn each pass, so this while True
+# runs without freezing the page: the buttons above keep firing, and Stop
+# interrupts it. (Under the hood the VM suspends via Asyncify/JSPI each sleep.)
+import time
+
+box = doc.getElementById("colorbox")
 hue = 0
 while True:
-    if js.mpPaused:
-        time.sleep_ms(50)
-        continue
-    x += dx; y += dy
-    if x < 0 or x > W - 20: dx = -dx
-    if y < 0 or y > H - 20: dy = -dy
-    hue = (hue + 1) & 0x1f
-    fb.fill(0x0000)
-    fb.fill_rect(x, y, 20, 20, (hue << 11) | 0x07E0)
-    fb.text("framebuf", 4, 4, 0xFFFF)
-    js.blit565(addr, W, H)
-    time.sleep_ms(16)
+    hue = (hue + 7) % 360
+    box.style.backgroundColor = "hsl({}, 70%, 45%)".format(hue)
+    time.sleep_ms(60)
 `,
 
-  'raw RGBA canvas': `# No framebuf: write RGBA8888 by hand and blit it. A scrolling gradient.
-import js, uctypes, time
-
-W, H = 160, 120
-buf = bytearray(W * H * 4)
-addr = uctypes.addressof(buf)
-
-t = 0
-while True:
-    for y in range(H):
-        row = y * W * 4
-        for x in range(W):
-            i = row + x * 4
-            buf[i]     = (x * 2 + t) & 0xff     # R
-            buf[i + 1] = (y * 2) & 0xff         # G
-            buf[i + 2] = t & 0xff               # B
-            buf[i + 3] = 255                    # A
-    js.blitrgba(addr, W, H)
-    t = (t + 4) & 0xff
-    time.sleep_ms(30)
-`,
-
-  'call into JS': `# The 'js' module reaches globalThis. Anything you put on the page is callable.
+  'Button counter (minimal)': `# The smallest useful example: one button, one counter.
 import js
-js.console.log("hello from MicroPython")     # -> browser devtools console
+
+count = 0
+out = js.document.getElementById("count")
+
+def ping(event):
+    global count
+    count += 1
+    out.textContent = str(count)
+    print("clicked", count, "time(s)")
+
+js.document.getElementById("ping").onclick = ping
+print("Ping is live - click it.")
+`,
+
+  'Show / hide': `# Toggle an element's visibility from Python.
+import js
+
+panel = js.document.getElementById("panel")
+btn = js.document.getElementById("toggle")
+
+def toggle(event):
+    hidden = panel.style.display == "none"
+    panel.style.display = "" if hidden else "none"
+    btn.textContent = "Hide details" if hidden else "Show details"
+    print("panel visible:", hidden)
+
+btn.onclick = toggle
+print("Toggle is live.")
+`,
+
+  'Live to-do list': `# Build DOM from Python: add tasks, click a task to remove it.
+import js
+
+doc = js.document
+box = doc.getElementById("todo-input")
+lst = doc.getElementById("todo-list")
+
+def add(event):
+    text = box.value.strip()
+    if not text:
+        return
+    li = doc.createElement("li")
+    li.textContent = text
+    li.onclick = lambda ev: lst.removeChild(li)
+    lst.appendChild(li)
+    box.value = ""
+    print("added:", text)
+
+doc.getElementById("todo-add").onclick = add
+print("Type a task and press Add.")
+`,
+
+  'Colour loop (while True)': `# A forever loop that doesn't freeze the page. time.sleep_ms() yields to the JS
+# event loop each pass (the VM suspends via Asyncify/JSPI), so the box animates,
+# Stop still works, and any buttons you've wired keep responding.
+import js, time
+
+box = js.document.getElementById("colorbox")
+hue = 0
+while True:
+    hue = (hue + 7) % 360
+    box.style.backgroundColor = "hsl({}, 70%, 45%)".format(hue)
+    time.sleep_ms(60)
+`,
+
+  'Reach into JS': `# 'js' is globalThis. Anything on the page (or the console) is reachable.
+import js
+
+js.console.log("hello from MicroPython")          # -> browser devtools console
 print("document.title =", js.document.title)
-print("2 + 3 via JS Math.max:", js.Math.max(2, 3))
+print("window is", js.innerWidth, "x", js.innerHeight, "px")
+print("Math.max(2, 3) via JS =", js.Math.max(2, 3))
 `,
 };
 
@@ -401,7 +458,7 @@ for (const name of Object.keys(EXAMPLES)) {
   els.examples.appendChild(opt);
 }
 els.examples.onchange = () => { els.code.value = EXAMPLES[els.examples.value]; syncHighlight(); syncScroll(); };
-const DEFAULT = 'framebuf animation';
+const DEFAULT = 'DOM events (wire the whole panel)';
 els.code.value = EXAMPLES[DEFAULT];
 els.examples.value = DEFAULT;
 syncHighlight();
@@ -422,22 +479,21 @@ const modUrl = `./build-${backend}/micropython.mjs`;
     mp = await loadMicroPython({
       heapsize: 8 * 1024 * 1024,
       linebuffer: true,
-      // linebuffer strips the trailing newline (it's the flush trigger), so
-      // re-add one per line or every print() would run together.
       stdout: (line) => log(line + '\n'),
       stderr: (line) => log(line + '\n', 'err'),
     });
-    // globalThis.Module is set by the loader; the blit bridges read its HEAPU8.
-    await mp.runPythonAsync('import sys; print("MicroPython", sys.version)');
     els.run.disabled = false;
     setStatus('ready', '');
-    log('\n[fixture ready — ⌘/Ctrl+Enter to run]\n', 'sys');
+    log('[core ready — wiring the panel…]\n', 'sys');
+    // Auto-run the default so the panel is interactive on load. Edit + re-run
+    // (Cmd/Ctrl+Enter) replaces the handlers in place.
+    runCode();
   } catch (e) {
     setStatus('load failed', 'error');
     log(`\nFailed to load ${modUrl}\n${e.message || e}\n`, 'err');
     log(`\nBuild the ${backend} port and serve this dir over HTTP:\n` +
         `  make VARIANT=${backend === 'jspi' ? 'jspi' : 'asyncify'}\n` +
-        `  python3 -m http.server 8000   # from ports/webassembly/\n`, 'sys');
+        `  python3 -m http.server 8000\n`, 'sys');
   }
 })();
 </script>
