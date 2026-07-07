@@ -14,12 +14,22 @@
   html, body { height: 100%; margin: 0; }
   body {
     background: var(--bg); color: var(--ink); font: 14px/1.5 var(--mono);
-    display: grid; grid-template-rows: auto 1fr auto; height: 100vh;
+    display: flex; flex-direction: column; height: 100vh; height: 100dvh;
   }
   header {
+    flex: 0 0 auto;
     display: flex; align-items: center; gap: 12px; padding: 8px 12px;
     background: var(--panel); border-bottom: 1px solid var(--edge);
   }
+
+  /* Code/UI tab bar: hidden on desktop, shown only in the mobile media query. */
+  .tabs { display: none; }
+  .tab {
+    flex: 1; border: 0; border-radius: 0; background: transparent; color: var(--dim);
+    padding: 11px; cursor: pointer; font: inherit; font-weight: 600;
+    letter-spacing: .03em; border-bottom: 2px solid transparent;
+  }
+  .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
   header h1 { font-size: 13px; margin: 0; font-weight: 600; letter-spacing: .02em; }
   header .grow { flex: 1; }
   .badge {
@@ -40,7 +50,7 @@
   button.run  { background: var(--run); border-color: transparent; }
   button.stop { background: var(--stop); border-color: transparent; }
 
-  main { display: grid; grid-template-columns: 1fr 360px; min-height: 0; }
+  main { flex: 1 1 auto; display: grid; grid-template-columns: 1fr 360px; min-height: 0; }
   .editor-wrap { display: flex; flex-direction: column; min-width: 0; border-right: 1px solid var(--edge); }
   .toolbar { display: flex; gap: 8px; align-items: center; padding: 8px; background: var(--panel); border-bottom: 1px solid var(--edge); }
   .toolbar .grow { flex: 1; }
@@ -104,7 +114,7 @@
   }
   .canvas { width: 100%; display: block; border: 1px solid var(--edge); border-radius: 6px; background: #0f1115; }
 
-  footer { display: flex; flex-direction: column; min-height: 120px; max-height: 34vh; border-top: 1px solid var(--edge); }
+  footer { flex: 0 0 auto; display: flex; flex-direction: column; min-height: 120px; max-height: 34vh; border-top: 1px solid var(--edge); }
   .out-bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--panel); border-bottom: 1px solid var(--edge); }
   .out-bar b { font-size: 12px; }
   #output {
@@ -113,6 +123,20 @@
   }
   #output .err { color: #ff7a7a; }
   #output .sys { color: var(--dim); }
+
+  /* -- Mobile: stack to one column and tab between the code and the panel -- */
+  @media (max-width: 760px) {
+    .tabs {
+      display: flex; flex: 0 0 auto;
+      background: var(--panel); border-bottom: 1px solid var(--edge);
+    }
+    /* One column; the visible pane fills the row (the other is display:none'd). */
+    main { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr); }
+    .editor-wrap, aside { min-height: 0; border-right: 0; }
+    body[data-tab="code"] aside { display: none; }
+    body[data-tab="ui"] .editor-wrap { display: none; }
+    aside { width: auto; }
+  }
 </style>
 </head>
 <body>
@@ -122,6 +146,11 @@
     <span class="grow"></span>
     <span id="status">loading…</span>
   </header>
+
+  <nav class="tabs" role="tablist" aria-label="View">
+    <button class="tab" data-tab="code" role="tab" aria-selected="true">Code</button>
+    <button class="tab" data-tab="ui" role="tab" aria-selected="false">Live UI</button>
+  </nav>
 
   <main>
     <div class="editor-wrap">
@@ -216,6 +245,17 @@ const els = {
   run: $('#run'), stop: $('#stop'), clear: $('#clear'),
   backend: $('#backend'), examples: $('#examples'), highlight: $('#highlight'),
 };
+
+// -- Mobile Code/UI tabs. Desktop hides the bar; the @media rule does the
+// actual show/hide of the panes off this body[data-tab] attribute. ----------
+document.body.dataset.tab = 'code';
+for (const tab of document.querySelectorAll('.tab')) {
+  tab.onclick = () => {
+    document.body.dataset.tab = tab.dataset.tab;
+    for (const t of document.querySelectorAll('.tab'))
+      t.setAttribute('aria-selected', String(t === tab));
+  };
+}
 
 // -- Python syntax highlighting (overlay: tokenise textarea into the <pre>) --
 const KW = 'False None True and as assert async await break class continue def del elif else except finally for from global if import in is lambda nonlocal not or pass raise return try while with yield'.split(' ');
